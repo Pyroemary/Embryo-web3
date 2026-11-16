@@ -1,0 +1,20 @@
+{
+  "name": "@embryo/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "deploy:base-sepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
+    "deploy:local": "hardhat run scripts/deploy.ts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.1.0",
+    "hardhat": "^2.22.17",
+    "solc": "0.8.28",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}

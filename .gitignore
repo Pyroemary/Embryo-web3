@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.expo/
+coverage/
+artifacts/
+cache/
+typechain-types/
+*.log
+.env
+.env.*
+!.env.example
