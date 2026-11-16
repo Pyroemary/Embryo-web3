@@ -1,0 +1,9 @@
+process.env.NODE_ENV = "test";
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://embryo:embryo@localhost:5432/embryo_test";
+process.env.AUTH_DEV_BYPASS = "true";
+process.env.ADMIN_API_KEY = "test-admin-key-test-admin-key-0123456789";
+process.env.SUMSUB_WEBHOOK_SECRET = "sumsub-secret";
+process.env.RAIN_WEBHOOK_SECRET = "card-secret";
+process.env.CARD_ISSUER = "mock";
+process.env.CHAIN_DRY_RUN = "true";
+process.env.SETTLEMENT_CRON_ENABLED = "false";

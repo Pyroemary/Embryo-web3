@@ -1,0 +1,226 @@
+// Embryo v1 data model. Money is always stored as integer minor units (BigInt):
+//  - card amounts: minor units of the transaction currency
+//  - investment / ledger amounts: micro-USDC (6 decimals)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  APPROVED
+  REJECTED
+  BLOCKED // sanctions / restricted country
+}
+
+enum Tier {
+  FREE
+  PLUS
+  ELITE
+}
+
+enum Track {
+  CONVENTIONAL
+  SHARIA
+}
+
+enum RiskProfile {
+  CONSERVATIVE
+  BALANCED
+  AGGRESSIVE
+}
+
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  CANCELLED
+}
+
+enum TxStatus {
+  PENDING
+  SETTLED
+  REVERSED
+  DECLINED
+}
+
+enum RoundUpStatus {
+  PENDING // accrued off-chain, waiting for batch
+  SUBMITTED // included in an on-chain batch tx
+  INVESTED // confirmed on-chain
+  REVERSED // refund before settlement
+  FAILED
+}
+
+model User {
+  id               String     @id @default(cuid())
+  authSubject      String     @unique // Privy DID
+  email            String?
+  phone            String?
+  walletAddress    String?    @unique // embedded smart wallet on Base (lowercase)
+  countryCode      String? // ISO-3166 alpha-2 (residence)
+  dateOfBirth      DateTime?
+  zodiacSign       String?
+  locale           String     @default("en")
+  tier             Tier       @default(FREE)
+  kycStatus        KycStatus  @default(NOT_STARTED)
+  kycApplicantId   String?    @unique
+  gateSynced       Boolean    @default(false) // AllowlistGate mirrors kycStatus
+  track            Track      @default(CONVENTIONAL)
+  riskProfile      RiskProfile @default(BALANCED)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  cards            Card[]
+  roundUpSettings  RoundUpSettings?
+  roundUps         RoundUpEntry[]
+  ledgerAccounts   LedgerAccount[]
+}
+
+model CountryPolicy {
+  countryCode String  @id
+  onboarding  Boolean @default(true)
+  card        Boolean @default(true)
+  vault       Boolean @default(true)
+  trading     Boolean @default(true)
+  note        String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Card {
+  id             String     @id @default(cuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  issuer         String // "rain" | "mock"
+  issuerCardId   String     @unique
+  last4          String
+  expMonth       Int
+  expYear        Int
+  status         CardStatus @default(ACTIVE)
+  design         String // e.g. "leo-plus"
+  createdAt      DateTime   @default(now())
+  transactions   CardTransaction[]
+
+  @@index([userId])
+}
+
+model CardTransaction {
+  id               String   @id @default(cuid())
+  cardId           String
+  card             Card     @relation(fields: [cardId], references: [id])
+  issuerTxId       String   @unique // idempotency key from issuer webhook
+  amountMinor      BigInt
+  currency         String
+  merchantName     String
+  mcc              String?
+  status           TxStatus
+  occurredAt       DateTime
+  createdAt        DateTime @default(now())
+  roundUp          RoundUpEntry?
+
+  @@index([cardId, occurredAt])
+}
+
+model RoundUpSettings {
+  userId           String   @id
+  user             User     @relation(fields: [userId], references: [id])
+  enabled          Boolean  @default(true)
+  spareChangeStep  Int?     @default(1) // 1 | 5 | 10
+  percentBps       Int?
+  multiplier       Int      @default(1)
+  dailyCapMicro    BigInt   @default(50000000) // $50
+  recurringMicro   BigInt?
+  recurringFreq    String? // daily | weekly | monthly
+  recurringNextAt  DateTime?
+  updatedAt        DateTime @updatedAt
+}
+
+model RoundUpEntry {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  transactionId  String?       @unique
+  transaction    CardTransaction? @relation(fields: [transactionId], references: [id])
+  source         String // "card" | "recurring" | "manual"
+  amountMicro    BigInt
+  localMinor     BigInt?
+  localCurrency  String?
+  status         RoundUpStatus @default(PENDING)
+  batchId        String?
+  batch          SettlementBatch? @relation(fields: [batchId], references: [id])
+  createdAt      DateTime      @default(now())
+
+  @@index([userId, status, createdAt])
+}
+
+model SettlementBatch {
+  id          String   @id @default(cuid())
+  txHash      String?
+  status      String // "building" | "submitted" | "confirmed" | "failed"
+  totalMicro  BigInt
+  userCount   Int
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  entries     RoundUpEntry[]
+}
+
+// ---------- double-entry ledger ----------
+
+model LedgerAccount {
+  id        String  @id @default(cuid())
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+  code      String // e.g. "user:roundup_pending", "user:invested", "system:clearing"
+  currency  String  @default("USDC")
+  createdAt DateTime @default(now())
+  lines     LedgerLine[]
+
+  @@unique([userId, code, currency])
+}
+
+model LedgerTransaction {
+  id          String   @id @default(cuid())
+  kind        String
+  reference   String   @unique // idempotency key
+  memo        String?
+  createdAt   DateTime @default(now())
+  lines       LedgerLine[]
+}
+
+model LedgerLine {
+  id            String   @id @default(cuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id])
+  accountId     String
+  account       LedgerAccount @relation(fields: [accountId], references: [id])
+  amountMicro   BigInt // positive = debit, negative = credit; each tx sums to zero
+
+  @@index([accountId])
+}
+
+// ---------- ops ----------
+
+model WebhookEvent {
+  id         String   @id @default(cuid())
+  provider   String
+  eventId    String
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     String
+  action    String
+  target    String?
+  data      Json?
+  createdAt DateTime @default(now())
+}
