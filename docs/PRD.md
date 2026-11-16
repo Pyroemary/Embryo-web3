@@ -3,7 +3,7 @@
 > *Your wealth conceived.* Automated round-up investing on stablecoin rails, with a
 > personalized virtual zodiac card, built on Base.
 
-Status: **Draft v1** · Source: founder interview + `Embryo-Main-V2` deck
+Status: **v1 in build** · Source: founder interview + `Embryo-Main-V2` deck · Go-live gates: [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md)
 
 ---
 
@@ -32,7 +32,7 @@ Status: **Draft v1** · Source: founder interview + `Embryo-Main-V2` deck
 | 19 | Vault assets | Tokenized T-bills/MMF · tokenized sukuk · blue-chip crypto basket · Aave/Morpho USDC |
 | 20 | Fees | 1%/yr management fee · performance fee (HWM) · interchange share · tier subscriptions · swap spread |
 | 21 | Admin keys | **Safe multisig (3-of-5) + 48h timelock**, plus a pause guardian (2-of-3) |
-| 22 | Backend | **TypeScript: NestJS + Postgres (Prisma) + Redis/BullMQ + viem** |
+| 22 | Backend | **TypeScript: NestJS + Postgres (Prisma) + viem**. Jobs run on a cron guarded by a Postgres advisory lock (Redis/BullMQ can come later if volume needs it) |
 | 23 | Delivery | Built mostly by Claude, ASAP; founder owns partner contracts, legal and audit |
 
 ---
@@ -109,7 +109,7 @@ apps/
   admin/         Next.js — compliance, users, card ops, vault ops, support
   api/           NestJS — REST + webhooks + workers
 packages/
-  contracts/     Foundry — vaults, strategies, fee logic, deploy scripts
+  contracts/     Hardhat (hermetic solc-js) — vaults, strategies, router, deploy scripts
   sdk/           Typed API client + contract ABIs (generated)
   ui/            Design tokens (Embryo green #1E4D45 / lime #DDF98A), shared components
   roundup/       Pure round-up calculation library (shared and heavily tested)
@@ -130,7 +130,7 @@ packages/
   - Sharia: sukuk RWA, idle USDC, blue-chip basket (spot only, no interest). Strategy allowlist approved by the Sharia board.
 - Risk profiles = per-vault or per-user allocation sets (Conservative / Balanced / Aggressive). v1 implementation: **one vault per (track × profile)**, so 6 vaults from one factory, which keeps the accounting simple.
 - Governance: Safe 3-of-5 → `TimelockController` (48h) → vault admin. Guardian Safe 2-of-3 can pause instantly.
-- Round-up deposits from non-custodial wallets: the user grants a **scoped session key / smart-account permission** (ERC-7579-style) that lets the Embryo keeper call only `vault.deposit(USDC, user)` up to a per-day cap. The user can revoke it at any time.
+- Round-up deposits from non-custodial wallets go through **`RoundUpRouter`**. The user approves USDC to it and calls `optIn(vault, dailyCap)`. The keeper can then only `deposit` into a listed vault, with shares minted to the user, up to that cap per UTC day. Revoke with `optOut()` or by removing the approval. This works with any wallet; ERC-7579 session keys are an optional later upgrade.
 
 ### 3.3 Backend core: double-entry ledger
 - Every value movement (card spend, round-up pending/settled, deposit, withdraw, fee, trade) is a balanced ledger entry in Postgres. On-chain state is the source of truth for balances; the ledger is reconciled against chain + Rain + on-ramp every hour, with discrepancy alerts.
@@ -161,7 +161,7 @@ packages/
 | Phase | Output |
 |---|---|
 | 0. Foundations | Monorepo, CI, design tokens, round-up library + tests |
-| 1. Contracts | Vault + strategies + fees + governance, Foundry tests (unit/fuzz/invariant), Base Sepolia deploy |
+| 1. Contracts | Vault + strategies + fees + governance, unit tests (fuzz/invariant still to do), Base Sepolia deploy |
 | 2. API | Auth, wallets, KYC, cards (Rain sandbox), round-up pipeline, ledger, webhooks |
 | 3. Mobile | Onboarding, zodiac card, round-up settings, portfolio, fund/withdraw, AR/EN |
 | 4. Admin | Users/KYC review, card ops, vault ops, reconciliation, feature flags |

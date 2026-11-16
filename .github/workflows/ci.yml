@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: embryo
+          POSTGRES_PASSWORD: embryo
+          POSTGRES_DB: embryo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U embryo" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://embryo:embryo@localhost:5432/embryo_test
+      DATABASE_URL: postgresql://embryo:embryo@localhost:5432/embryo_test
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Round-up engine
+        run: pnpm --filter @embryo/roundup build && pnpm --filter @embryo/roundup test
+
+      - name: Smart contracts
+        run: pnpm --filter @embryo/contracts test
+
+      - name: API (e2e against Postgres)
+        run: pnpm --filter @embryo/api exec prisma generate && pnpm --filter @embryo/api test
+
+      - name: Typecheck API, mobile, UI
+        run: |
+          pnpm --filter @embryo/api exec tsc --noEmit
+          pnpm --filter @embryo/mobile typecheck
+          pnpm --filter @embryo/ui typecheck
+
+      - name: Admin console build
+        run: pnpm --filter @embryo/admin build
+
+      - name: Mobile web export
+        run: pnpm --filter @embryo/mobile build:web
+        env:
+          EXPO_OFFLINE: "1"

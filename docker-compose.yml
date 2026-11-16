@@ -1,0 +1,12 @@
+# Local infrastructure for development: `docker compose up -d`
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: embryo
+      POSTGRES_PASSWORD: embryo
+      POSTGRES_DB: embryo
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+volumes:
+  pgdata:
